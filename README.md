@@ -11,7 +11,7 @@ Each playbook is written to be **executed step-by-step by an AI coding agent** (
 | # | Guide | What it does | Status |
 |---|---|---|---|
 | 01 | [Headless Mac mini as a Remote AI Assistant](guides/01-headless-assistant.md) | Turn a Mac mini into a headless, always-on box reachable from anywhere over Tailscale (before login), with a LAN fallback. | ✅ Ready |
-| 02 | Local model serving | Run local LLMs on one mini (Ollama / MLX / llama.cpp), exposed over the tailnet. | 🚧 Planned |
+| 02 | [Local model serving](guides/02-local-model-serving.md) | Run a local LLM on one mini via MLX (Ollama / llama.cpp alternatives), served as an OpenAI-compatible API over the tailnet. | ✅ Ready |
 | 03 | Mac mini fleet for big models | Cluster multiple minis to host a model too large for one machine. | 🚧 Planned |
 
 ---
@@ -36,7 +36,8 @@ It defines:
 mac-mini-ai/
 ├── README.md                      # this index
 ├── guides/                        # one playbook per file, numbered
-│   └── 01-headless-assistant.md
+│   ├── 01-headless-assistant.md
+│   └── 02-local-model-serving.md
 ├── scripts/                       # runnable helpers
 │   └── bootstrap.sh               # non-interactive provisioner for guide 01
 └── shared/                        # rules reused across guides
