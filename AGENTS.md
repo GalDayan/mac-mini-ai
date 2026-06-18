@@ -57,8 +57,9 @@ mac-mini-ai/
 └── shared/            # conventions reused across all guides
 ```
 
-## Commits
+## Commits & integration
 
+- **Always work in a git worktree**, never directly in the shared checkout. The operator runs **multiple agents simultaneously**, so an isolated worktree per task is required to avoid clobbering each other's working trees.
 - Small, focused commits with a clear subject line; explain *why* in the body when non-obvious.
 - Do not commit secrets, real auth keys, or machine-specific state.
-- Branch off `main`; open a PR for review rather than force-pushing `main`.
+- **Integrate by merging to `main` directly** (no PR-and-wait): before merging, **`git fetch` and pull/rebase the latest `main` and resolve any conflicts**, then merge your branch and push `main`. Do not force-push `main`.
