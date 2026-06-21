@@ -60,9 +60,32 @@ The bootstrap runs the safe, non-interactive steps and **stops with `MANUAL:` ma
 
 ---
 
+## Quick start (guide 02 — local model serving)
+
+```bash
+# On the mini: install the MLX runtime in an isolated env (uv ships its own Python)
+brew install uv
+uv venv --python 3.12 ~/mlx-serve
+uv pip install --python ~/mlx-serve/bin/python mlx-lm        # needs mlx-lm >= 0.31
+
+# Run a model (downloads ~20 GB the first time, then cached). The CLI is the
+# dotted command mlx_lm.generate — there is no bare `mlx_lm` command:
+~/mlx-serve/bin/mlx_lm.generate \
+  --model mlx-community/Qwen3.6-35B-A3B-4bit \
+  --prompt "Hello!" --max-tokens 128
+
+# Or serve an OpenAI-compatible API bound to the tailnet (not 0.0.0.0):
+~/mlx-serve/bin/mlx_lm.server --model mlx-community/Qwen3.6-35B-A3B-4bit \
+  --host "$(/opt/homebrew/bin/tailscale ip -4)" --port 8080
+```
+
+Measured on an M4 Pro / 48 GB: **~67 tok/s**, **~20 GB** peak. See [the full guide](guides/02-local-model-serving.md) for model sizing, firewall, a boot-time LaunchAgent, and the reboot acceptance test.
+
+---
+
 ## Roadmap
 
-- [ ] **02 — Local model serving:** Ollama / MLX / llama.cpp on a single mini, model exposed over the tailnet, with benchmarks.
+- [x] **02 — Local model serving:** MLX (Ollama / llama.cpp alternatives) on a single mini, model exposed over the tailnet, with benchmarks. → [guide](guides/02-local-model-serving.md)
 - [ ] **03 — Fleet:** sharding a large model across multiple minis; node discovery, health checks, and a single entrypoint.
 - [ ] Shared `LaunchDaemon`/`LaunchAgent` templates for persistent services.
 - [ ] MDM-friendly variants of each guide for managed fleets.

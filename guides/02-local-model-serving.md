@@ -86,6 +86,19 @@ MLX is Apple's framework; `mlx-lm` is the LLM toolkit on top of it. On Apple Sil
 > - **If it fails** — `Model type qwen3_5_moe not supported` ⇒ mlx-lm too old: `uv pip install --python ~/mlx-serve/bin/python -U mlx-lm`, or for a brand-new model install from git main (`uv pip install --python ~/mlx-serve/bin/python "mlx-lm @ git+https://github.com/ml-explore/mlx-lm"`). Also ensure `uname -m` is `arm64` (MLX is Apple-Silicon only) and macOS ≥ 13.5.
 > - **Idempotent** — yes (venv create is one-time; install re-runs harmlessly).
 
+> ### Step B.1a — (Optional) Make the `mlx_lm.*` commands available in your shell
+> - **Goal** — call `mlx_lm.generate` / `mlx_lm.server` directly instead of by full venv path.
+> - **Why** — the entry points are **`mlx_lm.generate`, `mlx_lm.server`, `mlx_lm.chat`** (dotted names — there is no bare `mlx_lm` command). They live in `~/mlx-serve/bin`, which isn't on `PATH` by default, so a bare call gives `command not found`.
+> - **Run** *(symlink just the mlx-lm tools into a PATH dir — does **not** shadow your system `python`)*
+>   ```bash
+>   for s in mlx_lm.generate mlx_lm.server mlx_lm.chat mlx_lm.manage; do
+>     ln -sf ~/mlx-serve/bin/$s /opt/homebrew/bin/$s
+>   done
+>   ```
+>   *(Alternatives: `source ~/mlx-serve/bin/activate` for the current session only, or add `export PATH="$HOME/mlx-serve/bin:$PATH"` to `~/.zshrc` — but the latter also puts the venv's `python` ahead of system Python.)*
+> - **Verify** — `command -v mlx_lm.generate` → `/opt/homebrew/bin/mlx_lm.generate`.
+> - **Idempotent** — yes (`ln -sf` overwrites the link).
+
 > ### Step B.2 — Download and smoke-test the model
 > - **Goal** — pull `<MODEL_REPO>` and confirm it generates, while measuring speed.
 > - **Why** — proves the model fits and works before you wire up a service.
