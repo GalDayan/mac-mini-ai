@@ -4,7 +4,7 @@
 
 > 📖 **Conventions.** This guide follows the shared [agent conventions](../shared/conventions.md): the **Goal / Why / Run / Verify / If it fails / Idempotent** step-block format, the placeholder tokens, the **privilege model** for `sudo`, and the **golden safety rule** (never change remote access without a working fallback). Read that file first.
 
-**Placeholders used here:** `<ADMIN_USER>`, `<MINI_HOSTNAME>`, `<LAN_IP>`, `<TS_IP>` — see the [conventions placeholder table](../shared/conventions.md#2-placeholders).
+**Placeholders used here:** `<ADMIN_USER>`, `<MINI_HOSTNAME>`, `<LAN_IP>`, `<TS_IP>` — see the [conventions placeholder table](../shared/conventions.md#2-placeholders). This guide also uses three local tokens in Step B.2: `<WIFI_IFACE>` (the Wi-Fi device, e.g. `en1`), `<HOME_SSID>` (the home network name), and `<GATEWAY_IP>` (the router's LAN IP).
 
 ---
 
@@ -13,7 +13,7 @@
 After completing this guide, on every boot the mini will — with **no keyboard and no human at the machine**:
 
 1. Power on automatically after a power outage.
-2. Stay awake and reachable (no deep sleep).
+2. Stay awake and reachable (no deep sleep), and **stay on the network unattended** — wired Ethernet preferred; on Wi-Fi, a watchdog auto-rejoins within ~90s if the link ever drops.
 3. Bring up **Tailscale at the login window**, *before anyone logs in*.
 4. Accept a **Screen Sharing** connection to the login window, so you can type the password remotely from another machine.
 5. Also be reachable over the **local network** (SSH + Screen Sharing) as a fallback.
@@ -94,9 +94,9 @@ This makes the mini reachable over your local network independent of Tailscale, 
 
 ---
 
-## Phase B — Always-on power behavior
+## Phase B — Always-on power & network resilience
 
-An assistant must survive power blips and never fall into unreachable deep sleep.
+An assistant must survive power blips, never fall into unreachable deep sleep, and **stay on the network unattended** — a box you can't reach is not an assistant.
 
 > ### Step B.1 — Auto-restart after power loss + no deep sleep
 > - **Goal** — mini powers back on after an outage and stays reachable.
@@ -111,6 +111,56 @@ An assistant must survive power blips and never fall into unreachable deep sleep
 >   ```
 > - **Verify** — `pmset -g | egrep 'autorestart|sleep|womp'` shows `autorestart 1`, `sleep 0`.
 > - **Idempotent** — yes.
+
+> ### Step B.2 — Keep the network link alive (wired preferred; Wi-Fi watchdog)
+> - **Goal** — the mini stays on the network unattended, and recovers by itself if the link drops.
+> - **Why** — remote access (Tailscale, SSH, Screen Sharing) all rides on the network. On a headless Mac, **Wi-Fi can silently lose its association and never rejoin on its own** — even with a strong signal — which locks you out completely until someone reconnects it at the machine. Wired Ethernet does not have this failure mode.
+> - **Decision**
+>   - **Wired Ethernet available → use it (strongly preferred).** Plug the mini into the router; `en0` is already the top-priority network service and comes up at boot before login. No watchdog needed — this is the robust fix.
+>   - **Wi-Fi only → install the watchdog below.** It pings the gateway every 60s and force-rejoins Wi-Fi if the link drops, self-healing in ~90s worst case (60s check interval + ~30s recovery).
+> - **Run (wired path)**
+>   ```bash
+>   # Plug Ethernet into the mini, then confirm the wired interface is up:
+>   ifconfig en0 | egrep 'status|inet '      # → status: active, with an inet address
+>   ```
+> - **Run (Wi-Fi-only path)** — first find your values: `<WIFI_IFACE>` from `networksetup -listallhardwareports` (the device under "Wi-Fi", usually `en1`), `<GATEWAY_IP>` from `route -n get default | awk '/gateway/{print $2}'`, and `<HOME_SSID>` is your network's name.
+>   ```bash
+>   # 1. Disable Power Nap (a known headless Wi-Fi disruptor)
+>   sudo pmset -a powernap 0
+>
+>   # 2. Install the watchdog script (shipped in this repo)
+>   sudo install -m 755 -o root -g wheel scripts/wifi-watchdog.sh /usr/local/bin/wifi-watchdog.sh
+>
+>   # 3. Create the LaunchDaemon — runs every 60s, at boot, before login.
+>   #    Replace the three <PLACEHOLDER> values before running.
+>   sudo tee /Library/LaunchDaemons/com.<ADMIN_USER>.wifi-watchdog.plist >/dev/null <<'PLIST'
+>   <?xml version="1.0" encoding="UTF-8"?>
+>   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+>   <plist version="1.0"><dict>
+>     <key>Label</key><string>com.<ADMIN_USER>.wifi-watchdog</string>
+>     <key>ProgramArguments</key><array><string>/usr/local/bin/wifi-watchdog.sh</string></array>
+>     <key>EnvironmentVariables</key><dict>
+>       <key>WIFI_IFACE</key><string><WIFI_IFACE></string>
+>       <key>HOME_SSID</key><string><HOME_SSID></string>
+>       <key>PROBE_HOST</key><string><GATEWAY_IP></string>
+>     </dict>
+>     <key>RunAtLoad</key><true/>
+>     <key>StartInterval</key><integer>60</integer>
+>     <key>StandardOutPath</key><string>/var/log/wifi-watchdog.out</string>
+>     <key>StandardErrorPath</key><string>/var/log/wifi-watchdog.err</string>
+>   </dict></plist>
+>   PLIST
+>
+>   # 4. Load it
+>   sudo launchctl bootstrap system /Library/LaunchDaemons/com.<ADMIN_USER>.wifi-watchdog.plist
+>   sudo launchctl enable system/com.<ADMIN_USER>.wifi-watchdog
+>   ```
+> - **Verify**
+>   - Wired: `ifconfig en0` shows `status: active` with an `inet` address.
+>   - Wi-Fi watchdog (**real drop test**): `sudo networksetup -setairportpower <WIFI_IFACE> off`, wait ~90s, then confirm `ifconfig <WIFI_IFACE>` shows `status: active`, `ping -c2 <GATEWAY_IP>` succeeds, and `sudo cat /var/log/wifi-watchdog.log` shows a `recovery OK` line.
+> - **If it fails** — `sudo launchctl print system/com.<ADMIN_USER>.wifi-watchdog` should show `run interval = 60`. If Wi-Fi never rejoins, confirm `<HOME_SSID>` is a saved network (its password is in the keychain) and `<GATEWAY_IP>` is correct.
+> - **Note** — do **not** bother deleting other saved Wi-Fi networks: iCloud Keychain re-syncs them, and they don't cause the drop (none are in range at home). The watchdog, not pruning, is the fix.
+> - **Idempotent** — yes (re-running the install overwrites cleanly; bootstrapping an already-loaded daemon is a harmless no-op).
 
 ---
 
@@ -240,10 +290,12 @@ If all four checks pass, the mini is a finished plug-and-play assistant. 🎉
 scutil --get HostName                              # hostname
 sudo systemsetup -getremotelogin                   # SSH on?
 lsof -nP -iTCP:5900 -sTCP:LISTEN                    # Screen Sharing on?
-pmset -g | egrep 'autorestart|sleep|womp'          # power behavior
+pmset -g | egrep 'autorestart|sleep|womp|powernap'  # power behavior + Power Nap off
 fdesetup status                                    # FileVault state
 sudo brew services list | grep tailscale           # daemon running?
 sudo /opt/homebrew/bin/tailscale status            # tailnet connectivity
+ifconfig en0 | grep status                         # wired link up? (preferred)
+sudo launchctl print system/com.<ADMIN_USER>.wifi-watchdog | grep 'run interval'  # Wi-Fi watchdog loaded? (Wi-Fi-only)
 ```
 
 ---
@@ -262,7 +314,11 @@ sudo systemsetup -setremotelogin off
 sudo launchctl bootout system /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null
 
 # Restore default power behavior
-sudo pmset -a sleep 1 disksleep 10 autorestart 0
+sudo pmset -a sleep 1 disksleep 10 autorestart 0 powernap 1
+
+# (Wi-Fi-only) Remove the Wi-Fi watchdog
+sudo launchctl bootout system /Library/LaunchDaemons/com.<ADMIN_USER>.wifi-watchdog.plist 2>/dev/null
+sudo rm -f /Library/LaunchDaemons/com.<ADMIN_USER>.wifi-watchdog.plist /usr/local/bin/wifi-watchdog.sh
 ```
 
 ---
@@ -275,5 +331,6 @@ sudo pmset -a sleep 1 disksleep 10 autorestart 0
 | Can't reach `<TS_IP>` after reboot, but `<LAN_IP>` works | tailscaled didn't start / not authed | `sudo brew services restart tailscale`; re-run `tailscale up` |
 | Tailscale connects only after you log in | The **GUI app** is still running | Revisit Step D.2; ensure only the daemon runs |
 | Mini unreachable after a power outage | FileVault on, or `autorestart` off | Revisit Steps B.1 and C.1 |
+| Lost all access one morning; Wi-Fi had silently dropped | Headless Wi-Fi lost association and didn't rejoin | Use **wired Ethernet** (Step B.2), or install the Wi-Fi watchdog; check `/var/log/wifi-watchdog.log` |
 | Screen Sharing shows black screen at login | Display asleep | Connect anyway; the session wakes it. Or set `displaysleep 0` |
 | Two `mini` entries in Tailscale admin | Old GUI node + new daemon node | Delete the stale one in the admin console |
